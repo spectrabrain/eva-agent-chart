@@ -1,0 +1,203 @@
+nameOverride: "eva-agent-qdrant"
+
+# Air-gapped k3s profile. eva-deployer resolves these deployment-specific
+# placeholders:
+#   <harbor_registry>  repository_registry (host[:port])
+#   <harbor_project>   repository_project
+# Passwords never belong in this values file. qdrant-snapshot-harbor is a
+# Qdrant-specific Kubernetes Secret created by eva-deployer before Helm runs.
+imagePullSecrets: []
+
+image:
+  repository: <harbor_registry>/<harbor_project>/qdrant
+  pullPolicy: IfNotPresent
+  tag: v1.18.2
+
+chartTests:
+  dbInteraction:
+    image: <harbor_registry>/<harbor_project>/bci-base:latest
+
+service:
+  type: NodePort
+
+persistence:
+  storageVolumeName: eva-agent-qdrant-storage
+  storageClassName: eva-agent-sc-bs
+
+snapshotPersistence:
+  enabled: true
+  snapshotsVolumeName: eva-agent-qdrant-snapshots
+  storageClassName: eva-agent-sc-bs
+
+snapshotRestoration:
+  enabled: false
+
+nodeSelector:
+  node.kubernetes.io/instance-type: k3s
+  kubernetes.io/os: linux
+
+# Harbor artifact format:
+#   <HARBOR_REGISTRY>/<HARBOR_PROJECT>/qdrant-snapshots:<artifactTag>
+#
+# One SNAPSHOT_SPECS line is: artifactTag|snapshotFile|logicalCollection.
+# The deployer helper pushes each snapshot as an OCI artifact whose tag is
+# artifactTag; the sidecar pulls it with ORAS before restoring the collection.
+sidecarContainers:
+  - name: qdrant-snapshot-sync
+    image: <harbor_registry>/<harbor_project>/eva-agent-qdrant-snapshot-sync:0.1.0
+    imagePullPolicy: IfNotPresent
+    command:
+      - /bin/bash
+      - -ec
+    args:
+      - |
+        set -u -o pipefail
+
+        readonly ready_file=/tmp/qdrant-snapshot-sync.ready
+        readonly qdrant_url="${QDRANT_URL%/}"
+        readonly local_root="${SNAPSHOT_LOCAL_ROOT%/}"
+        harbor_registry="${HARBOR_REGISTRY#http://}"
+        harbor_registry="${harbor_registry#https://}"
+        readonly harbor_registry
+        readonly artifact_repository="${HARBOR_PROJECT}/qdrant-snapshots"
+        declare -a qdrant_headers=()
+        if [[ -n "${QDRANT_API_KEY:-}" ]]; then
+          qdrant_headers=(-H "api-key: ${QDRANT_API_KEY}")
+        fi
+
+        qdrant_get() {
+          curl -fsS "${qdrant_headers[@]}" "$1"
+        }
+
+        qdrant_status() {
+          curl -sS "${qdrant_headers[@]}" -o /dev/null -w '%{http_code}' "$1"
+        }
+
+        wait_for_qdrant() {
+          until qdrant_get "${qdrant_url}/readyz" >/dev/null; do
+            echo 'waiting for Qdrant readiness' >&2
+            sleep 2
+          done
+        }
+
+        collection_is_healthy() {
+          qdrant_get "${qdrant_url}/collections/$1" \
+            | jq -e '.status == "ok" and (.result.status == "green" or .result.status == "yellow") and (.result.points_count != null)' >/dev/null
+        }
+
+        pull_snapshot() {
+          local artifact_tag="$1"
+          local snapshot_file="$2"
+          local local_file artifact_ref temporary_dir
+
+          [[ -n "${artifact_tag}" && -n "${snapshot_file}" ]] || return 1
+          [[ -n "${harbor_registry}" && -n "${HARBOR_PROJECT:-}" ]] || {
+            echo 'HARBOR_REGISTRY and HARBOR_PROJECT must be set' >&2
+            return 1
+          }
+          [[ -n "${HARBOR_USERNAME:-}" && -n "${HARBOR_PASSWORD:-}" ]] || {
+            echo 'HARBOR_USERNAME and HARBOR_PASSWORD must be set' >&2
+            return 1
+          }
+
+          local_file="${local_root}/${snapshot_file}"
+          [[ -s "${local_file}" ]] && {
+            printf '%s\n' "${local_file}"
+            return 0
+          }
+
+          artifact_ref="${harbor_registry}/${artifact_repository}:${artifact_tag}"
+          temporary_dir="${local_root}/.oras-${artifact_tag}"
+          rm -rf "${temporary_dir}"
+          mkdir -p "${temporary_dir}" "$(dirname "${local_file}")"
+          echo "pulling ${artifact_ref}" >&2
+          oras pull --plain-http --username "${HARBOR_USERNAME}" --password "${HARBOR_PASSWORD}" \
+            --output "${temporary_dir}" "${artifact_ref}" || return 1
+          [[ -s "${temporary_dir}/${snapshot_file}" ]] || {
+            echo "artifact ${artifact_ref} does not contain ${snapshot_file}" >&2
+            return 1
+          }
+          mv -f "${temporary_dir}/${snapshot_file}" "${local_file}"
+          rm -rf "${temporary_dir}"
+          printf '%s\n' "${local_file}"
+        }
+
+        reconcile_snapshot() {
+          local artifact_tag="$1"
+          local snapshot_file="$2"
+          local logical_collection="$3"
+          local snapshot_path target_collection status
+
+          [[ -n "${snapshot_file}" && -n "${logical_collection}" ]] || return 1
+          snapshot_path="$(pull_snapshot "${artifact_tag}" "${snapshot_file}")" || return 1
+          target_collection="${logical_collection}"
+          status="$(qdrant_status "${qdrant_url}/collections/${target_collection}")" || return 1
+          case "${status}" in
+            200|404) ;;
+            *) echo "unexpected collection status ${status} for ${target_collection}" >&2; return 1 ;;
+          esac
+
+          echo "restoring ${snapshot_file} into ${target_collection}" >&2
+          curl -fsS "${qdrant_headers[@]}" -X POST \
+            "${qdrant_url}/collections/${target_collection}/snapshots/upload?wait=true&priority=snapshot" \
+            -F "snapshot=@${snapshot_path}" \
+            | jq -e '.status == "ok"' >/dev/null || return 1
+          collection_is_healthy "${target_collection}"
+        }
+
+        reconcile_all() {
+          local artifact_tag snapshot_file logical_collection ignored
+          while IFS='|' read -r artifact_tag snapshot_file logical_collection ignored; do
+            [[ -z "${artifact_tag}${snapshot_file}${logical_collection}" || "${artifact_tag}" == \#* ]] && continue
+            reconcile_snapshot "${artifact_tag}" "${snapshot_file}" "${logical_collection}" || return 1
+          done <<< "${SNAPSHOT_SPECS}"
+        }
+
+        rm -f "${ready_file}"
+        wait_for_qdrant
+        reconcile_all || { echo 'snapshot restoration failed' >&2; exit 1; }
+        touch "${ready_file}"
+        exec sleep infinity
+    env:
+      # This must be reachable from the Qdrant Pod. Do not use localhost:32080
+      # for a multi-node cluster unless every node has that Harbor endpoint.
+      - name: HARBOR_REGISTRY
+        value: <harbor_registry>
+      - name: HARBOR_PROJECT
+        value: <harbor_project>
+      - name: HARBOR_USERNAME
+        valueFrom:
+          secretKeyRef:
+            name: qdrant-snapshot-harbor
+            key: username
+      - name: HARBOR_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: qdrant-snapshot-harbor
+            key: password
+      - name: SNAPSHOT_LOCAL_ROOT
+        value: /qdrant/snapshots/bootstrap
+      - name: QDRANT_URL
+        value: http://127.0.0.1:6333
+      - name: SNAPSHOT_SPECS
+        value: |
+          eva_manual_qwen3vl_collections|eva_manual_qwen3vl_20260824.snapshot|eva_manual_qwen3vl
+    readinessProbe:
+      exec:
+        command:
+          - /bin/bash
+          - -ec
+          - test -f /tmp/qdrant-snapshot-sync.ready
+      periodSeconds: 5
+      timeoutSeconds: 2
+      failureThreshold: 3
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    volumeMounts:
+      - name: eva-agent-qdrant-snapshots
+        mountPath: /qdrant/snapshots

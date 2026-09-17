@@ -1,0 +1,8 @@
+apiVersion: v1
+type: postrenderer/v1
+name: eva-agent-qdrant-postrenderer
+version: 0.2.0
+runtime: subprocess
+runtimeConfig:
+  platformCommand:
+    - command: ${HELM_PLUGIN_DIR}/post-renderer.sh

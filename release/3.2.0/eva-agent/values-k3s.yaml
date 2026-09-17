@@ -1,0 +1,12 @@
+nodeSelector:
+  node.kubernetes.io/instance-type: k3s
+  kubernetes.io/os: linux
+
+sharedPvcStorage:
+  nfs:
+    path: /share/eva-agent/agent-cache
+
+resources:
+  requests:
+    # cpu: 100m
+    memory: 3Gi

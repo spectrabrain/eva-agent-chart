@@ -12,10 +12,6 @@ image:
   pullPolicy: Always
   tag: v1.18.2
 
-# Preserve the existing k3s exposure configured on the cluster.
-service:
-  type: NodePort
-
 # Qdrant storage PVC.
 persistence:
   storageVolumeName: eva-agent-qdrant-storage
@@ -27,13 +23,12 @@ snapshotPersistence:
   snapshotsVolumeName: eva-agent-qdrant-snapshots
   storageClassName: eva-agent-sc-bs
 
-# Snapshot recovery is handled by the S3 snapshot sidecar.
+# Snapshot recovery is handled by the aws-cli snapshot sidecar.
 snapshotRestoration:
   enabled: false
 
-nodeSelector:
-  node.kubernetes.io/instance-type: k3s
-  kubernetes.io/os: linux
+# NCP deployments should override this selector when their cluster uses a
+# dedicated node pool. The base 3.0.4 values had no selector for NCP.
 
 # Snapshot synchronization and reconciliation. Configure one line per
 # collection as: s3Directory|snapshotFile|logicalCollection.
@@ -41,7 +36,7 @@ nodeSelector:
 # already exist on the snapshot PVC at SNAPSHOT_LOCAL_ROOT/snapshotFile.
 sidecarContainers:
   - name: qdrant-snapshot-sync
-    image: amazon/aws-cli:2.33.8
+    image: 339713051385.dkr.ecr.ap-northeast-2.amazonaws.com/mellerikat/release/eva-agent-qdrant-snapshot-sync:0.1.0
     imagePullPolicy: IfNotPresent
     command:
       - /bin/bash
