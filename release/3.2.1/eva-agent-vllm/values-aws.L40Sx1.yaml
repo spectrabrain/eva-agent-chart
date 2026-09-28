@@ -1,0 +1,81 @@
+routerSpec:
+  nodeSelectorTerms:
+    - matchExpressions:
+        - key: eks.amazonaws.com/nodegroup
+          operator: In
+          values:
+            - ng-an2-eva-agent-gpu
+
+servingEngineSpec:
+  runtimeClassName: ""
+  strategy:
+    type: Recreate
+  modelSpec:
+    - serviceAccountName: sa-eva-agent
+      name: "qwen35-vl-9b-fp8"
+      modelURL: "lovedheart/Qwen3.5-9B-FP8"
+      repository: "vllm/vllm-openai"
+      tag: "v0.21.0"
+
+      replicaCount: 1
+      requestCPU: 4
+      requestMemory: "10Gi"
+      # requestGPU: 1
+      requestGPUType: "nvidia.com/gpu"
+
+      env:
+        - name: HF_HUB_OFFLINE
+          value: "1"
+        - name: TRANSFORMERS_OFFLINE
+          value: "1"
+        - name: HF_HUB_DISABLE_TELEMETRY
+          value: "1"
+
+      envFromSecret:
+        name: aws-credentials
+      initContainer:
+        name: s3-sync
+        image: amazon/aws-cli:2.33.8
+        awsRegion: ap-northeast-2
+
+      enableTool: true
+      toolCallParser: "qwen3_coder"
+
+      vllmConfig:
+        host: "0.0.0.0"
+        tensorParallelSize: 1
+        gpuMemoryUtilization: 0.6
+        enableChunkedPrefill: true
+        enablePrefixCaching: true
+        maxModelLen: "24K"
+        dtype: "auto"
+        extraArgs:
+          - "--served-model-name"
+          - "qwen3.5-vl-9b-fp8"
+          - "--reasoning-parser"
+          - "qwen3"
+          - "--kv-cache-memory-bytes"
+          # 6G is tuned for shared 48GB VRAM 1장인 경우에 사용 (Vision과 공유)
+          - "6G"
+          - "--kv-cache-dtype"
+          - "fp8"
+          - "--max-num-batched-tokens"
+          - "4K"
+          - "--max-num-seqs"
+          - "32"
+          - "--disable-access-log-for-endpoints"
+          - "/health,/metrics,/ping"
+
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: eks.amazonaws.com/nodegroup
+          operator: In
+          values:
+            - ng-an2-eva-agent-gpu
+
+sharedPvcStorage:
+  mode: dynamic
+  size: "50Gi"
+  accessModes:
+    - "ReadWriteMany"
+  storageClass: "eva-agent-sc-fs"

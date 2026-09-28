@@ -1,0 +1,87 @@
+routerSpec:
+  repository: "{{ harbor_url }}/eva/lmstack-router"
+  tag: "v0.1.10"
+  imagePullPolicy: Always
+  nodeSelectorTerms:
+    - matchExpressions:
+      - key: node.kubernetes.io/instance-type
+        operator: In
+        values:
+          - k3s
+      - key: kubernetes.io/os
+        operator: In
+        values:
+          - linux
+
+servingEngineSpec:
+  runtimeClassName: "nvidia"
+  strategy:
+    type: Recreate
+  modelSpec:
+    - serviceAccountName: sa-eva-agent
+      name: "qwen35-vl-9b-fp8"
+      modelURL: "lovedheart/Qwen3.5-9B-FP8"
+      repository: "{{ harbor_url }}/eva/vllm-openai"
+      tag: "v0.21.0"
+      imagePullPolicy: Always
+      replicaCount: 3
+      requestCPU: 4
+      requestMemory: "10Gi"
+      requestGPU: 1
+      requestGPUType: "nvidia.com/mig-1g.24gb"
+      env:
+        - name: HF_HUB_OFFLINE
+          value: "1"
+        - name: TRANSFORMERS_OFFLINE
+          value: "1"
+        - name: HF_HUB_DISABLE_TELEMETRY
+          value: "1"
+      envFromSecret:
+        name: aws-credentials
+      initContainer:
+        name: s3-sync
+        image: "{{ harbor_url }}/eva/aws-cli:2.33.8"
+        awsRegion: ap-northeast-2
+      enableTool: true
+      toolCallParser: "qwen3_coder"
+      vllmConfig:
+        host: "0.0.0.0"
+        tensorParallelSize: 1
+        gpuMemoryUtilization: 0.9
+        enableChunkedPrefill: true
+        enablePrefixCaching: true
+        maxModelLen: "24K"
+        dtype: "auto"
+        extraArgs:
+          - "--served-model-name"
+          - "qwen3.5-vl-9b-fp8"
+          - "--reasoning-parser"
+          - "qwen3"
+          - "--kv-cache-dtype"
+          - "fp8"
+          - "--max-num-batched-tokens"
+          - "4K"
+          - "--max-num-seqs"
+          - "32"
+          - "--disable-access-log-for-endpoints"
+          - "/health,/metrics,/ping"
+      nodeSelectorTerms:
+        - matchExpressions:
+          - key: node.kubernetes.io/instance-type
+            operator: In
+            values:
+              - k3s
+          - key: kubernetes.io/os
+            operator: In
+            values:
+              - linux
+
+sharedPvcStorage:
+  mode: static
+  size: "50Gi"
+  accessModes:
+    - "ReadWriteMany"
+  storageClass: "eva-agent-sc-fs"
+  nfs:
+    server: "localhost"
+    path: "{{ eva_agent_nfs_share_path }}/vllm-cache"

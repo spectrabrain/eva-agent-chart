@@ -1,0 +1,183 @@
+nameOverride: "eva-agent-qdrant"
+
+serviceAccount:
+  create: false
+  name: sa-eva-agent
+
+# Namespace-scoped ECR pull Secret maintained by the EVA Agent ECR refresh job.
+imagePullSecrets:
+  - name: eva-agent-dockerconfig
+
+image:
+  pullPolicy: Always
+  tag: v1.18.2
+
+# Qdrant storage PVC.
+persistence:
+  storageVolumeName: eva-agent-qdrant-storage
+  storageClassName: eva-agent-sc-bs
+
+# Separate PVC used for Qdrant snapshots and the bootstrap snapshot.
+snapshotPersistence:
+  enabled: true
+  snapshotsVolumeName: eva-agent-qdrant-snapshots
+  storageClassName: eva-agent-sc-bs
+
+# Snapshot recovery is handled by the aws-cli snapshot sidecar.
+snapshotRestoration:
+  enabled: false
+
+# NCP deployments should override this selector when their cluster uses a
+# dedicated node pool. The base 3.0.4 values had no selector for NCP.
+
+# Snapshot synchronization and reconciliation. Configure one line per
+# collection as: s3Directory|snapshotFile|logicalCollection.
+# Leave s3Directory empty in an air-gapped deployment: the snapshot must then
+# already exist on the snapshot PVC at SNAPSHOT_LOCAL_ROOT/snapshotFile.
+sidecarContainers:
+  - name: qdrant-snapshot-sync
+    image: 339713051385.dkr.ecr.ap-northeast-2.amazonaws.com/mellerikat/release/eva-agent-qdrant-snapshot-sync:0.1.0
+    imagePullPolicy: IfNotPresent
+    command:
+      - /bin/bash
+      - -ec
+    args:
+      - |
+        set -u -o pipefail
+
+        readonly ready_file=/tmp/qdrant-snapshot-sync.ready
+        readonly qdrant_url="${QDRANT_URL%/}"
+        readonly s3_prefix="${S3_PREFIX#/}"
+        readonly local_root="${SNAPSHOT_LOCAL_ROOT%/}"
+        declare -a qdrant_headers=()
+        if [[ -n "${QDRANT_API_KEY:-}" ]]; then
+          qdrant_headers=(-H "api-key: ${QDRANT_API_KEY}")
+        fi
+
+        qdrant_get() {
+          curl -fsS "${qdrant_headers[@]}" "$1"
+        }
+
+        qdrant_status() {
+          curl -sS "${qdrant_headers[@]}" -o /dev/null -w '%{http_code}' "$1"
+        }
+
+        wait_for_qdrant() {
+          until qdrant_get "${qdrant_url}/readyz" >/dev/null; do
+            echo 'waiting for Qdrant readiness' >&2
+            sleep 2
+          done
+        }
+
+        collection_is_healthy() {
+          qdrant_get "${qdrant_url}/collections/$1" \
+            | jq -e '.status == "ok" and (.result.status == "green" or .result.status == "yellow") and (.result.points_count != null)' >/dev/null
+        }
+
+        download_or_use_local_snapshot() {
+          local s3_directory="$1"
+          local snapshot_file="$2"
+          local local_file
+
+          if [[ -n "${s3_directory}" ]]; then
+            local_file="${local_root}/${s3_directory}/${snapshot_file}"
+          else
+            local_file="${local_root}/${snapshot_file}"
+          fi
+
+          if [[ -z "${s3_directory}" ]]; then
+            [[ -s "${local_file}" ]] || {
+            echo "offline snapshot is missing from PVC: ${local_file}" >&2
+            return 1
+            }
+            printf '%s\n' "${local_file}"
+            return 0
+          fi
+
+          mkdir -p "$(dirname "${local_file}")" || return 1
+          local remote_directory="s3://${S3_BUCKET}/${s3_prefix}/${s3_directory}/"
+          echo "syncing ${remote_directory}${snapshot_file}" >&2
+          aws s3 sync "${remote_directory}" "$(dirname "${local_file}")/" \
+            --exclude '*' --include "${snapshot_file}" --only-show-errors || return 1
+          [[ -s "${local_file}" ]] || return 1
+          printf '%s\n' "${local_file}"
+        }
+
+        reconcile_snapshot() {
+          local s3_directory="$1"
+          local snapshot_file="$2"
+          local logical_collection="$3"
+          local snapshot_path target_collection status
+
+          [[ -n "${snapshot_file}" && -n "${logical_collection}" ]] || return 1
+          snapshot_path="$(download_or_use_local_snapshot "${s3_directory}" "${snapshot_file}")" || return 1
+          target_collection="${logical_collection}"
+          status="$(qdrant_status "${qdrant_url}/collections/${target_collection}")" || return 1
+
+          case "${status}" in
+            200|404) ;;
+            *)
+              echo "unexpected collection status ${status} for ${target_collection}" >&2
+              return 1
+              ;;
+          esac
+
+          echo "restoring ${snapshot_file} into ${target_collection}" >&2
+          curl -fsS "${qdrant_headers[@]}" -X POST \
+            "${qdrant_url}/collections/${target_collection}/snapshots/upload?wait=true&priority=snapshot" \
+            -F "snapshot=@${snapshot_path}" \
+            | jq -e '.status == "ok"' >/dev/null || return 1
+          collection_is_healthy "${target_collection}" || return 1
+        }
+
+        reconcile_all() {
+          local s3_directory snapshot_file logical_collection ignored
+          while IFS='|' read -r s3_directory snapshot_file logical_collection ignored; do
+            [[ -z "${s3_directory}${snapshot_file}${logical_collection}" || "${s3_directory}" == \#* ]] && continue
+            reconcile_snapshot "${s3_directory}" "${snapshot_file}" "${logical_collection}" || return 1
+          done <<< "${SNAPSHOT_SPECS}"
+        }
+
+        rm -f "${ready_file}"
+        wait_for_qdrant
+        reconcile_all || {
+          echo 'snapshot restoration failed' >&2
+          exit 1
+        }
+        touch "${ready_file}"
+        exec sleep infinity
+    env:
+      - name: S3_BUCKET
+        value: s3-an2-mellerikat-release-eva-agent
+      - name: S3_PREFIX
+        value: agent/qdrant
+      - name: SNAPSHOT_LOCAL_ROOT
+        value: /qdrant/snapshots/bootstrap
+      - name: QDRANT_URL
+        value: http://127.0.0.1:6333
+      - name: SNAPSHOT_SPECS
+        value: |
+          eva_manual_qwen3vl_collections|eva_manual_qwen3vl_20260824.snapshot|eva_manual_qwen3vl
+    envFrom:
+      - secretRef:
+          name: aws-credentials
+          optional: true
+    readinessProbe:
+      exec:
+        command:
+          - /bin/bash
+          - -ec
+          - test -f /tmp/qdrant-snapshot-sync.ready
+      periodSeconds: 5
+      timeoutSeconds: 2
+      failureThreshold: 3
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    volumeMounts:
+      - name: eva-agent-qdrant-snapshots
+        mountPath: /qdrant/snapshots
