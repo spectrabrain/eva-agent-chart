@@ -1,21 +1,19 @@
 nameOverride: "eva-agent-qdrant"
 
-# Air-gapped k3s profile. eva-deployer resolves these deployment-specific
-# placeholders:
-#   <harbor_registry>  repository_registry (host[:port])
-#   <harbor_project>   repository_project
+# Harbor k3s profile. Replace {{ harbor_url }} with the reachable Harbor
+# host:port before using this values file.
 # Passwords never belong in this values file. qdrant-snapshot-harbor is a
 # Qdrant-specific Kubernetes Secret created by eva-deployer before Helm runs.
 imagePullSecrets: []
 
 image:
-  repository: <harbor_registry>/<harbor_project>/qdrant
+  repository: "{{ harbor_url }}/eva/qdrant"
   pullPolicy: IfNotPresent
   tag: v1.18.2
 
 chartTests:
   dbInteraction:
-    image: <harbor_registry>/<harbor_project>/bci-base:latest
+    image: "{{ harbor_url }}/eva/bci-base:latest"
 
 service:
   type: NodePort
@@ -44,7 +42,7 @@ nodeSelector:
 # artifactTag; the sidecar pulls it with ORAS before restoring the collection.
 sidecarContainers:
   - name: qdrant-snapshot-sync
-    image: <harbor_registry>/<harbor_project>/eva-agent-qdrant-snapshot-sync:0.1.0
+    image: "{{ harbor_url }}/eva/eva-agent-qdrant-snapshot-sync:0.1.0"
     imagePullPolicy: IfNotPresent
     command:
       - /bin/bash
@@ -162,9 +160,9 @@ sidecarContainers:
       # This must be reachable from the Qdrant Pod. Do not use localhost:32080
       # for a multi-node cluster unless every node has that Harbor endpoint.
       - name: HARBOR_REGISTRY
-        value: <harbor_registry>
+        value: "{{ harbor_url }}"
       - name: HARBOR_PROJECT
-        value: <harbor_project>
+        value: eva
       - name: HARBOR_USERNAME
         valueFrom:
           secretKeyRef:

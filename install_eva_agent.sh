@@ -35,12 +35,12 @@ Options:
 
 Expected layout under base-dir:
   ./eva-agent/values-secret.yaml (optional, auto-included when present)
-  ./eva-agent/values-k3s.yaml (optional standalone provider values)
+  ./eva-agent/values-k3s.ecr.yaml (optional standalone provider values)
   ./eva-agent/values-aws.yaml (optional standalone provider values)
   ./eva-agent/values-ncp.yaml (optional standalone provider values)
 
 Examples:
-  ./install_eva_agent.sh -f eva-agent/values-k3s.yaml
+  ./install_eva_agent.sh -f eva-agent/values-k3s.ecr.yaml
   ./install_eva_agent.sh --chart eva-agent/eva-agent --chart-version 3.2.0 -f eva-agent/values-aws.yaml
 USAGE
 }

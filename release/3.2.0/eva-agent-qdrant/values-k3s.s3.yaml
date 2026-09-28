@@ -9,8 +9,13 @@ imagePullSecrets:
   - name: eva-agent-dockerconfig
 
 image:
+  repository: qdrant/qdrant
   pullPolicy: Always
   tag: v1.18.2
+
+chartTests:
+  dbInteraction:
+    image: registry.suse.com/bci/bci-base:latest
 
 # Preserve the existing k3s exposure configured on the cluster.
 service:
