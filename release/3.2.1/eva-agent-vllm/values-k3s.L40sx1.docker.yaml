@@ -1,4 +1,6 @@
 routerSpec:
+  repository: "lmcache/lmstack-router"
+  tag: "v0.1.10"
   nodeSelectorTerms:
     - matchExpressions:
       - key: node.kubernetes.io/instance-type

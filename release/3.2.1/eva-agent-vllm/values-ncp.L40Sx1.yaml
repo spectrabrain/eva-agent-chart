@@ -1,3 +1,7 @@
+routerSpec:
+  repository: "lmcache/lmstack-router"
+  tag: "v0.1.10"
+
 servingEngineSpec:
   runtimeClassName: ""
   strategy:
