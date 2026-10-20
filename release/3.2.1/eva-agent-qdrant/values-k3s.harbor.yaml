@@ -157,7 +157,7 @@ sidecarContainers:
         touch "${ready_file}"
         exec sleep infinity
     env:
-      # This must be reachable from the Qdrant Pod. Do not use localhost:32080
+      # This must be reachable from the Qdrant Pod. Do not use localhost
       # for a multi-node cluster unless every node has that Harbor endpoint.
       - name: HARBOR_REGISTRY
         value: "{{ harbor_url }}"
