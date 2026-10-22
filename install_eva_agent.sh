@@ -18,14 +18,15 @@ Usage:
 
 Options:
   --chart <chart>                   Helm chart reference (default: eva-agent/eva-agent)
-  --chart-version <ver>             Helm chart version (default: 3.2.1)
+  --chart-version <ver>             Helm chart version (default: 3.3.0-rc.1)
   --image <tag>                     Image tag (defaults to image.tag in provided values files)
   --namespace <ns>                  Namespace (default: eva-agent)
   --context <ctx>                   Kube context (default: current context)
   --base-dir <dir>                  Base directory with eva-agent values (default: pwd)
-  --ecr-host <host>                 ECR host (default: 339713051385.dkr.ecr.ap-northeast-2.amazonaws.com)
-  --ecr-repo <repo>                 ECR repo name (default: mellerikat/release/eva-agent)
-  --profile <aws-profile>           AWS profile (default: default)
+  --ecr-host <host>                 ECR host (default: 211722900905.dkr.ecr.ap-northeast-2.amazonaws.com)
+  --ecr-repo <repo>                 ECR repo name (default: spectrabrain/eva-agent)
+  --profile <aws-profile>           AWS profile (default: spectrabrain)
+  --region <aws-region>             AWS region (default: ap-northeast-2)
   --check-digest <0|1>              Compare digest when tag is the same (default: 0)
   --force-conflicts <0|1>           Force Helm to replace drifted resources on upgrade (default: 0)
   --aws-credentials-secret <name>   AWS credentials secret name (default: aws-credentials)
@@ -41,27 +42,18 @@ Expected layout under base-dir:
 
 Examples:
   ./install_eva_agent.sh -f eva-agent/values-k3s.ecr.yaml
-  ./install_eva_agent.sh --chart eva-agent/eva-agent --chart-version 3.2.1 -f eva-agent/values-aws.yaml
+  ./install_eva_agent.sh --chart eva-agent/eva-agent --chart-version 3.3.0-rc.1 -f eva-agent/values-aws.yaml
 USAGE
-}
-
-mask_secret() {
-  local value="${1:-}"
-  local len="${#value}"
-  if [ "$len" -le 8 ]; then
-    printf '****'
-    return
-  fi
-  printf '%s****%s' "${value:0:4}" "${value: -4}"
 }
 
 # Defaults (override via env vars or CLI).
 NS="${NS:-eva-agent}"
-AWS_ECR_HOST="${AWS_ECR_HOST:-339713051385.dkr.ecr.ap-northeast-2.amazonaws.com}"
+AWS_ECR_HOST="${AWS_ECR_HOST:-211722900905.dkr.ecr.ap-northeast-2.amazonaws.com}"
 AWS_PROFILE="${AWS_PROFILE:-}"
-ECR_REPO_NAME="${ECR_REPO_NAME:-mellerikat/release/eva-agent}"
+ECR_REPO_NAME="${ECR_REPO_NAME:-spectrabrain/eva-agent}"
+AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 CHART="${CHART:-eva-agent/eva-agent}"
-CHART_VERSION="${CHART_VERSION:-3.2.1}"
+CHART_VERSION="${CHART_VERSION:-3.3.0-rc.1}"
 IMAGE_TAG="${IMAGE_TAG:-}"
 CHECK_DIGEST="${CHECK_DIGEST:-0}"
 FORCE_CONFLICTS="${FORCE_CONFLICTS:-0}"
@@ -91,6 +83,7 @@ while [ "${1:-}" != "" ]; do
     --ecr-host) AWS_ECR_HOST="$2"; shift 2 ;;
     --ecr-repo) ECR_REPO_NAME="$2"; shift 2 ;;
     --profile) AWS_PROFILE="$2"; shift 2 ;;
+    --region) AWS_REGION="$2"; shift 2 ;;
     --check-digest) CHECK_DIGEST="$2"; shift 2 ;;
     --force-conflicts) FORCE_CONFLICTS="$2"; shift 2 ;;
     --aws-credentials-secret) AWS_CREDENTIALS_SECRET="$2"; shift 2 ;;
@@ -116,9 +109,9 @@ echo "[INFO] Chart: ${CHART}"
 echo "[INFO] Base Dir: ${BASE_DIR}"
 echo "[INFO] Force Conflicts: ${FORCE_CONFLICTS}"
 
-# If not provided, default to the "default" AWS profile.
+# If not provided, use the migrated AWS account profile.
 if [ -z "$AWS_PROFILE" ]; then
-  AWS_PROFILE="default"
+  AWS_PROFILE="spectrabrain"
 fi
 echo "[INFO] AWS Profile: ${AWS_PROFILE}"
 echo "[INFO] AWS Credentials Secret: ${AWS_CREDENTIALS_SECRET}"
@@ -138,9 +131,9 @@ if [ -z "$IMAGE_TAG" ]; then
   for values_path in "${EXTRA_VALUES[@]}"; do
     if [ -f "$values_path" ]; then
       tag_from_values="$(awk '
-        $1 == "image:" {in_image=1; next}
-        in_image && $1 == "tag:" {gsub(/"/, "", $2); print $2; exit}
-        in_image && $1 ~ /^[A-Za-z_]/ {in_image=0}
+        /^image:[[:space:]]*$/ {in_image=1; next}
+        in_image && $1 == "tag:" {gsub(/["\047]/, "", $2); print $2; exit}
+        in_image && /^[A-Za-z_][A-Za-z0-9_-]*:/ {in_image=0}
       ' "$values_path")"
       if [ -n "$tag_from_values" ]; then
         IMAGE_TAG="$tag_from_values"
@@ -155,6 +148,10 @@ else
   echo "[INFO] IMAGE_TAG not set; Helm chart/default values will be used."
 fi
 
+# Keep the Helm alias aligned with the chartmuseum branch published by CI.
+helm repo add eva-agent https://raw.githubusercontent.com/spectrabrain/eva-agent-chart/chartmuseum --force-update
+helm repo update eva-agent
+
 # Resolve chart version from Helm metadata when not provided.
 if [ -z "$CHART_VERSION" ]; then
   CHART_VERSION="$(helm show chart "$CHART" | awk -F': ' '/^version:/{print $2; exit}')"
@@ -166,7 +163,7 @@ if [ -z "$CHART_VERSION" ]; then
 fi
 echo "[INFO] Chart Version: ${CHART_VERSION}"
 
-# Sync AWS credentials into the target cluster (used by initContainer + ECR refresh CronJob).
+# Sync AWS credentials for the ECR refresh jobs and shared dependency workloads.
 if [ "$SYNC_AWS_CREDENTIALS" = "1" ]; then
   echo "[INFO] Syncing AWS credentials to secret ${AWS_CREDENTIALS_SECRET}..."
   aws_access_key_id="$(aws configure get aws_access_key_id --profile "$AWS_PROFILE" || true)"
@@ -183,8 +180,6 @@ if [ "$SYNC_AWS_CREDENTIALS" = "1" ]; then
     exit 1
   fi
 
-  echo "[INFO] AWS_ACCESS_KEY_ID: $(mask_secret "$aws_access_key_id")"
-  echo "[INFO] AWS_SECRET_ACCESS_KEY: $(mask_secret "$aws_secret_access_key")"
   if [ -n "$aws_session_token" ]; then
     echo "[INFO] AWS_SESSION_TOKEN: present"
   else
@@ -194,6 +189,7 @@ if [ "$SYNC_AWS_CREDENTIALS" = "1" ]; then
   secret_args=(
     --from-literal=AWS_ACCESS_KEY_ID="$aws_access_key_id"
     --from-literal=AWS_SECRET_ACCESS_KEY="$aws_secret_access_key"
+    --from-literal=AWS_REGION="$AWS_REGION"
   )
   if [ -n "$aws_session_token" ]; then
     secret_args+=(--from-literal=AWS_SESSION_TOKEN="$aws_session_token")
@@ -245,7 +241,7 @@ helm upgrade --install eva-agent "$CHART" --version="$CHART_VERSION" -n "$NS" \
 # If the tag is the same, compare digests and restart if needed.
 if [ -n "$IMAGE_TAG" ] && [ -n "$prev_tag" ] && [ "$prev_tag" = "$IMAGE_TAG" ]; then
   if [ "$CHECK_DIGEST" = "1" ]; then
-    desired_digest="$(aws ecr describe-images \
+    desired_digest="$(aws --profile "$AWS_PROFILE" --region "$AWS_REGION" ecr describe-images \
       --repository-name "$ECR_REPO_NAME" \
       --image-ids imageTag="$IMAGE_TAG" \
       --query 'imageDetails[0].imageDigest' \
