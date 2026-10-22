@@ -9,6 +9,12 @@
 
 두 설치 script는 `eva-agent` Helm repo alias를 CI가 게시하는 `https://raw.githubusercontent.com/spectrabrain/eva-agent-chart/chartmuseum`으로 갱신합니다.
 
+vLLM values의 기본 이미지와 저장소 설정은 `release/3.2.1`을 유지합니다. Docker variants는
+`lmcache/lmstack-router:v0.1.10`, `vllm/vllm-openai:v0.21.0`을 사용하며 k3s NFS 기본값은
+`localhost:/share/eva-agent/vllm-cache`입니다. Harbor variants는 Harbor 이미지와
+`{{ eva_agent_nfs_share_path }}/vllm-cache`를 사용합니다. 실제 e2e의
+`/data/share/eva-agent/vllm-cache`는 `tmp_release`의 환경별 override로 유지합니다.
+
 ## AWS 인증 갱신 위치
 
 저장소 루트의 `install_eva_agent.sh`는 `--profile spectrabrain`으로 local AWS profile을 읽어 namespace의 `aws-credentials` Secret을 갱신합니다. ECR 로그인 hook과 CronJob이 이 Secret을 사용해 `eva-agent-dockerconfig` pull Secret을 새 registry로 갱신합니다. GitHub CI OIDC publisher Role과 cluster runtime 인증은 별도입니다. 자격 증명 값은 로그에 출력하지 않습니다.
