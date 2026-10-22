@@ -1,0 +1,2 @@
+nodeSelector:
+  eks.amazonaws.com/nodegroup: ng-an2-eva-agent
