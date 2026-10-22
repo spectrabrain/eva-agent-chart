@@ -17,7 +17,7 @@ vLLM values의 기본 이미지와 저장소 설정은 `release/3.2.1`을 유지
 
 ## AWS 인증 갱신 위치
 
-저장소 루트의 `install_eva_agent.sh`는 `--profile spectrabrain`으로 local AWS profile을 읽어 namespace의 `aws-credentials` Secret을 갱신합니다. ECR 로그인 hook과 CronJob이 이 Secret을 사용해 `eva-agent-dockerconfig` pull Secret을 새 registry로 갱신합니다. GitHub CI OIDC publisher Role과 cluster runtime 인증은 별도입니다. 자격 증명 값은 로그에 출력하지 않습니다.
+저장소 루트의 `install_eva_agent.sh`는 기본으로 local AWS `default` profile을 읽어 namespace의 `aws-credentials` Secret을 갱신합니다. 다른 profile은 `--profile`로 지정할 수 있습니다. ECR 로그인 hook과 CronJob이 이 Secret을 사용해 `eva-agent-dockerconfig` pull Secret을 새 registry로 갱신합니다. GitHub CI OIDC publisher Role과 cluster runtime 인증은 별도입니다. 자격 증명 값은 로그에 출력하지 않습니다.
 
 아래 배포 명령은 실제 cluster를 변경하므로 준비가 끝난 뒤 실행하세요. 먼저 gitignore 대상인 `.values-3.3.0`에 values를 복사하고, 그 안의 `eva-agent/values-secret.yaml` placeholder를 실제 환경에 맞게 설정합니다. 이 파일은 script가 마지막에 자동 반영하므로 별도 `-f` 파일에 둔 동일 키를 덮어씁니다. 자격 증명은 채팅이나 git에 공유하지 않습니다.
 
@@ -30,14 +30,14 @@ cp -a release/3.3.0 .values-3.3.0
   --base-dir .values-3.3.0 \
   --chart-version 3.3.0-rc.2 \
   --image 3.3.0-rc.2 \
-  --profile spectrabrain \
+  --profile default \
   --region ap-northeast-2 \
   --context e2e-pro5000 \
   --check-digest 1 \
   -f .values-3.3.0/eva-agent/values-k3s.ecr.yaml
 ```
 
-의존성 설치 script도 `--aws-credential spectrabrain`으로 동일 Secret을 갱신할 수 있으며 region과 선택적 session token을 함께 반영합니다. 이미 Agent script에서 갱신했다면 이 옵션을 생략합니다. 의존성 script는 현재 kube context를 사용하므로 실행 전에 확인하세요.
+의존성 설치 script도 `--aws-credential default`로 동일 Secret을 갱신할 수 있으며 region과 선택적 session token을 함께 반영합니다. 이미 Agent script에서 갱신했다면 이 옵션을 생략합니다. 의존성 script는 현재 kube context를 사용하므로 실행 전에 확인하세요.
 
 ```sh
 ./install_eva_agent_dependencies.sh \
@@ -45,7 +45,7 @@ cp -a release/3.3.0 .values-3.3.0
   --release 3.3.0 \
   --components vllm \
   --vllm-chart-version 3.3.0-rc.2 \
-  --aws-credential spectrabrain \
+  --aws-credential default \
   --vllm-values .values-3.3.0/eva-agent-vllm/values-k3s.PRO5000x3.docker.yaml
 ```
 

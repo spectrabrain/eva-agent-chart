@@ -25,7 +25,7 @@ Options:
   --base-dir <dir>                  Base directory with eva-agent values (default: pwd)
   --ecr-host <host>                 ECR host (default: 211722900905.dkr.ecr.ap-northeast-2.amazonaws.com)
   --ecr-repo <repo>                 ECR repo name (default: spectrabrain/eva-agent)
-  --profile <aws-profile>           AWS profile (default: spectrabrain)
+  --profile <aws-profile>           AWS profile (default: default)
   --region <aws-region>             AWS region (default: ap-northeast-2)
   --check-digest <0|1>              Compare digest when tag is the same (default: 0)
   --force-conflicts <0|1>           Force Helm to replace drifted resources on upgrade (default: 0)
@@ -109,9 +109,9 @@ echo "[INFO] Chart: ${CHART}"
 echo "[INFO] Base Dir: ${BASE_DIR}"
 echo "[INFO] Force Conflicts: ${FORCE_CONFLICTS}"
 
-# If not provided, use the migrated AWS account profile.
+# If not provided, use the default AWS profile.
 if [ -z "$AWS_PROFILE" ]; then
-  AWS_PROFILE="spectrabrain"
+  AWS_PROFILE="default"
 fi
 echo "[INFO] AWS Profile: ${AWS_PROFILE}"
 echo "[INFO] AWS Credentials Secret: ${AWS_CREDENTIALS_SECRET}"
