@@ -4,9 +4,7 @@ serviceAccount:
   create: false
   name: sa-eva-agent
 
-# Namespace-scoped ECR pull Secret maintained by the EVA Agent ECR refresh job.
-imagePullSecrets:
-  - name: eva-agent-dockerconfig
+imagePullSecrets: []
 
 image:
   repository: qdrant/qdrant
@@ -46,7 +44,7 @@ nodeSelector:
 # already exist on the snapshot PVC at SNAPSHOT_LOCAL_ROOT/snapshotFile.
 sidecarContainers:
   - name: qdrant-snapshot-sync
-    image: 211722900905.dkr.ecr.ap-northeast-2.amazonaws.com/spectrabrain/eva-harbor-oras:0.1.0
+    image: amazon/aws-cli:2.33.8
     imagePullPolicy: IfNotPresent
     command:
       - /bin/bash
