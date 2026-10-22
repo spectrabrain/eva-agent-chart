@@ -1,7 +1,7 @@
 image:
   repository: "211722900905.dkr.ecr.ap-northeast-2.amazonaws.com/spectrabrain/eva-agent"
   pullPolicy: Always
-  tag: "3.3.0-rc.1"
+  tag: "3.3.0-rc.2"
 
 ecrRefresh:
   registry: "211722900905.dkr.ecr.ap-northeast-2.amazonaws.com"

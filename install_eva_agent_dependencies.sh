@@ -19,7 +19,7 @@ Options:
   --base-dir <dir>           Base directory with values/plugin folders (default: pwd)
   --components <target>      Install target: both, qdrant, or vllm (default: both)
   --qdrant-chart-version <v> Qdrant chart version (default: 1.18.2)
-  --vllm-chart-version <v>   vLLM chart version (default: 3.3.0-rc.1)
+  --vllm-chart-version <v>   vLLM chart version (default: 3.3.0-rc.2)
   --qdrant-values <file>     Extra values file for Qdrant (repeatable)
   --vllm-values <file>       Extra values file for vLLM (repeatable)
   --aws-credential <profile> AWS CLI profile name to seed aws-credentials Secret
@@ -44,7 +44,7 @@ RELEASE_VERSION="${RELEASE_VERSION:-3.3.0}"
 BASE_DIR="${BASE_DIR:-$(pwd)}"
 COMPONENTS="${COMPONENTS:-both}"
 QDRANT_CHART_VERSION="${QDRANT_CHART_VERSION:-1.18.2}"
-VLLM_CHART_VERSION="${VLLM_CHART_VERSION:-3.3.0-rc.1}"
+VLLM_CHART_VERSION="${VLLM_CHART_VERSION:-3.3.0-rc.2}"
 AWS_PROFILE_NAME="${AWS_PROFILE_NAME:-}"
 AWS_SECRET_NAME="${AWS_SECRET_NAME:-aws-credentials}"
 FORCE_CONFLICTS="${FORCE_CONFLICTS:-0}"
