@@ -51,4 +51,6 @@ cp -a release/3.3.0 .values-3.3.0
 
 ## Qdrant 적용 전 확인
 
-기존 snapshot sidecar는 시작할 때 `priority=snapshot`으로 collection을 복원합니다. 기존 collection이 있어도 덮어쓸 수 있으므로, AWS 인증과 image 변경만을 위해 Qdrant를 재시작하기 전에 현재 데이터와 복원 의도를 확인해야 합니다. 이 values 준비 과정에서는 cluster 복원이나 PVC 삭제를 수행하지 않았습니다. Harbor values는 별도 Harbor 배포 경로용이며 ECR/S3 설정과 혼합하지 않습니다.
+`eva-agent-qdrant`의 AWS, NCP, k3s S3, k3s Harbor values에 있는 snapshot sidecar는 기본적으로 기존 collection을 보존하고, collection이 없을 때만 snapshot을 복원합니다. `sidecarContainers`의 `env`에 있는 `SNAPSHOT_RESTORE_EXISTING`을 문자열 `"true"`로 변경하면 sidecar가 시작할 때 기존 collection도 `priority=snapshot`으로 덮어씁니다. 기본값은 문자열 `"false"`이며, 이 옵션은 retention 설정과 별개입니다.
+
+Helm은 `sidecarContainers`와 `env` 리스트를 통째로 교체하므로, 해당 values 파일에서 기존 환경변수의 `value`만 변경하세요. Harbor values는 별도 Harbor 배포 경로용이며 ECR/S3 설정과 혼합하지 않습니다.

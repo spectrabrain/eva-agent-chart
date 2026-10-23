@@ -118,18 +118,26 @@ sidecarContainers:
           local snapshot_path target_collection status
 
           [[ -n "${snapshot_file}" && -n "${logical_collection}" ]] || return 1
-          snapshot_path="$(download_or_use_local_snapshot "${s3_directory}" "${snapshot_file}")" || return 1
           target_collection="${logical_collection}"
           status="$(qdrant_status "${qdrant_url}/collections/${target_collection}")" || return 1
 
           case "${status}" in
-            200|404) ;;
+            200)
+              # 이미지 변경으로 재시작할 때 기존 collection을 snapshot으로 덮어쓰지 않는다.
+              if [[ "${SNAPSHOT_RESTORE_EXISTING:-false}" != "true" ]]; then
+                echo "preserving existing collection ${target_collection}" >&2
+                collection_is_healthy "${target_collection}" || return 1
+                return 0
+              fi
+              ;;
+            404) ;;
             *)
               echo "unexpected collection status ${status} for ${target_collection}" >&2
               return 1
               ;;
           esac
 
+          snapshot_path="$(download_or_use_local_snapshot "${s3_directory}" "${snapshot_file}")" || return 1
           echo "restoring ${snapshot_file} into ${target_collection}" >&2
           curl -fsS "${qdrant_headers[@]}" -X POST \
             "${qdrant_url}/collections/${target_collection}/snapshots/upload?wait=true&priority=snapshot" \
@@ -163,6 +171,8 @@ sidecarContainers:
         value: /qdrant/snapshots/bootstrap
       - name: QDRANT_URL
         value: http://127.0.0.1:6333
+      - name: SNAPSHOT_RESTORE_EXISTING
+        value: "false"
       - name: SNAPSHOT_SPECS
         value: |
           eva_manual_qwen3vl_collections|eva_manual_qwen3vl_test_20260824.snapshot|eva_manual_qwen3vl
