@@ -1,8 +1,8 @@
 # 3.3.0 배포 values
 
-`3.2.1`을 복사한 공통 values이며 AWS/ECR 배포의 chart/image는 `3.3.0-rc.2`를 사용합니다. 정식 또는 다음 RC 배포에서는 버전을 명시적으로 지정하세요.
+`3.2.1`을 기반으로 업데이트한 정식 `3.3.0` 배포용 공통 values입니다. Agent와 vLLM chart는 `3.3.0`을 사용하며, Agent 이미지 태그도 모든 배포 환경에서 `3.3.0`을 사용합니다.
 
-- Agent 이미지: `211722900905.dkr.ecr.ap-northeast-2.amazonaws.com/spectrabrain/eva-agent:3.3.0-rc.2`
+- Agent 이미지: `211722900905.dkr.ecr.ap-northeast-2.amazonaws.com/spectrabrain/eva-agent:3.3.0`
 - Agent ECR 갱신 hook/CronJob: 새 ECR registry를 사용하며, Agent 모델 cache PVC와 S3 preload 설정은 제거했습니다. 기존 cluster의 PVC/PV는 배포 전에 별도 보존 상태를 확인하세요.
 - vLLM: 기존 모델 cache와 preload를 유지하며 S3 source를 `s3://spectrabrain-eva-agent/vllm/hf`로 설정했습니다.
 - Qdrant S3 snapshot sidecar: Docker Hub의 `amazon/aws-cli:2.33.8` 이미지를 사용합니다. ORAS 보조 이미지는 Harbor OCI snapshot 경로에서만 사용합니다. 파일은 `s3://spectrabrain-eva-agent/agent/qdrant/eva_manual_qwen3vl_collections/eva_manual_qwen3vl_test_20260824.snapshot`, 복원 collection은 기존 `eva_manual_qwen3vl`입니다.
@@ -28,8 +28,8 @@ cp -a release/3.3.0 .values-3.3.0
 ```sh
 ./install_eva_agent.sh \
   --base-dir .values-3.3.0 \
-  --chart-version 3.3.0-rc.2 \
-  --image 3.3.0-rc.2 \
+  --chart-version 3.3.0 \
+  --image 3.3.0 \
   --profile default \
   --region ap-northeast-2 \
   --context e2e-pro5000 \
@@ -44,7 +44,7 @@ cp -a release/3.3.0 .values-3.3.0
   --base-dir .values-3.3.0 \
   --release 3.3.0 \
   --components vllm \
-  --vllm-chart-version 3.3.0-rc.2 \
+  --vllm-chart-version 3.3.0 \
   --aws-credential default \
   --vllm-values .values-3.3.0/eva-agent-vllm/values-k3s.PRO5000x3.docker.yaml
 ```

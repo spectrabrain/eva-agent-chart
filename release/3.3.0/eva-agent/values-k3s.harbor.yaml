@@ -1,7 +1,7 @@
 image:
   repository: "{{ harbor_url }}/eva/eva-agent"
   pullPolicy: Always
-  tag: "3.3.0-rc.2"
+  tag: "3.3.0"
 
 imagePullSecrets: []
 
