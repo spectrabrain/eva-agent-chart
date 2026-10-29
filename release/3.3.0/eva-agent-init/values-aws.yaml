@@ -1,0 +1,20 @@
+# Values for AWS eva-agent-init chart
+
+storageClass:
+
+  blockStorage:
+    provisioner: ebs.csi.aws.com
+    parameters:
+      type: gp3
+      fsType: ext4
+      encrypted: "true"
+
+  fileSystem:
+    provisioner: efs.csi.aws.com
+    parameters:
+      provisioningMode: efs-ap
+      fileSystemId: fs-xxxxxx
+      directoryPerms: "0770"
+      gidRangeStart: "1000"
+      gidRangeEnd: "2000"
+      basePath: "/eva-agent"

@@ -1,0 +1,15 @@
+# Values for k3s eva-agent-init chart
+
+storageClass:
+
+  blockStorage:
+    provisioner: rancher.io/local-path
+    parameters:
+      type: local
+      fsType: ext4
+
+  fileSystem:
+    provisioner: nfs.csi.k8s.io
+    parameters:
+      server: localhost
+      share: /data001/share/eva-agent

@@ -15,11 +15,11 @@ Usage:
 
 Options:
   --namespace <ns>           Namespace (default: eva-agent)
-  --release <ver>            Release version (default: 3.2.1)
+  --release <ver>            Release version (default: 3.3.0)
   --base-dir <dir>           Base directory with values/plugin folders (default: pwd)
   --components <target>      Install target: both, qdrant, or vllm (default: both)
   --qdrant-chart-version <v> Qdrant chart version (default: 1.18.2)
-  --vllm-chart-version <v>   vLLM chart version (default: 3.2.1)
+  --vllm-chart-version <v>   vLLM chart version (default: 3.3.0-rc.2)
   --qdrant-values <file>     Extra values file for Qdrant (repeatable)
   --vllm-values <file>       Extra values file for vLLM (repeatable)
   --aws-credential <profile> AWS CLI profile name to seed aws-credentials Secret
@@ -40,11 +40,11 @@ USAGE
 }
 
 NS="${NS:-eva-agent}"
-RELEASE_VERSION="${RELEASE_VERSION:-3.2.1}"
+RELEASE_VERSION="${RELEASE_VERSION:-3.3.0}"
 BASE_DIR="${BASE_DIR:-$(pwd)}"
 COMPONENTS="${COMPONENTS:-both}"
 QDRANT_CHART_VERSION="${QDRANT_CHART_VERSION:-1.18.2}"
-VLLM_CHART_VERSION="${VLLM_CHART_VERSION:-3.2.1}"
+VLLM_CHART_VERSION="${VLLM_CHART_VERSION:-3.3.0-rc.2}"
 AWS_PROFILE_NAME="${AWS_PROFILE_NAME:-}"
 AWS_SECRET_NAME="${AWS_SECRET_NAME:-aws-credentials}"
 FORCE_CONFLICTS="${FORCE_CONFLICTS:-0}"
@@ -103,6 +103,11 @@ command -v helm >/dev/null 2>&1 || { echo "[ERROR] helm not found" >&2; exit 1; 
 command -v kubectl >/dev/null 2>&1 || { echo "[ERROR] kubectl not found" >&2; exit 1; }
 if [ -n "${AWS_PROFILE_NAME}" ]; then
   command -v aws >/dev/null 2>&1 || { echo "[ERROR] aws CLI not found (required for --aws-credential)" >&2; exit 1; }
+fi
+
+if [ "${INSTALL_VLLM}" = true ]; then
+  helm repo add eva-agent https://raw.githubusercontent.com/spectrabrain/eva-agent-chart/chartmuseum --force-update
+  helm repo update eva-agent
 fi
 
 HELM_PLUGINS="$(helm env 2>/dev/null | awk -F= '/^HELM_PLUGINS=/{print $2}' | tr -d '\"')"
@@ -188,6 +193,10 @@ if [ -n "${AWS_PROFILE_NAME}" ]; then
   AWS_ACCESS_KEY_ID="$(aws --profile "${AWS_PROFILE_NAME}" configure get aws_access_key_id)"
   AWS_SECRET_ACCESS_KEY="$(aws --profile "${AWS_PROFILE_NAME}" configure get aws_secret_access_key)"
   AWS_REGION="$(aws --profile "${AWS_PROFILE_NAME}" configure get region)"
+  AWS_SESSION_TOKEN="$(aws --profile "${AWS_PROFILE_NAME}" configure get aws_session_token || true)"
+  if [ "${AWS_SESSION_TOKEN}" = "None" ]; then
+    AWS_SESSION_TOKEN=""
+  fi
 
   if [ -z "${AWS_ACCESS_KEY_ID}" ] || [ -z "${AWS_SECRET_ACCESS_KEY}" ]; then
     echo "[ERROR] Missing aws_access_key_id or aws_secret_access_key in profile '${AWS_PROFILE_NAME}'." >&2
@@ -198,11 +207,16 @@ if [ -n "${AWS_PROFILE_NAME}" ]; then
     exit 1
   fi
 
+  secret_args=(
+    --from-literal=AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
+    --from-literal=AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
+    --from-literal=AWS_REGION="${AWS_REGION}"
+  )
+  if [ -n "${AWS_SESSION_TOKEN}" ]; then
+    secret_args+=(--from-literal=AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN}")
+  fi
   kubectl -n "${NS}" create secret generic "${AWS_SECRET_NAME}" \
-    --from-literal=AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
-    --from-literal=AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
-    --from-literal=AWS_REGION="${AWS_REGION}" \
-    --dry-run=client -o yaml | kubectl apply -f -
+    "${secret_args[@]}" --dry-run=client -o yaml | kubectl apply -f -
   echo "[INFO] Upserted Secret ${AWS_SECRET_NAME} from AWS profile ${AWS_PROFILE_NAME}"
 fi
 
